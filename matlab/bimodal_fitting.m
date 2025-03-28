@@ -23,7 +23,7 @@ n02=zeros(r,1);
 
 % options1=optimset('display','off');
 % loop over all times
-[ix,iy,iz]=meshgrid(0.05:0.05:0.95);
+[ix,iy,iz]=meshgrid(0.1:0.1:0.9);
 init1=[0.3,0.6,0.85];
 minis=[1.e-4,1e-4,1e-4];
 maxis=1-minis;
@@ -35,33 +35,22 @@ options1=optimoptions('lsqcurvefit',...
 % options1=optimoptions('lsqnonlin','MaxFunEvals',10000,'MaxIter',10000,...
 %     'algorithm','interior-point','StepTolerance',1e-10,...
 %     'OptimalityTolerance',1e-10,'TolFun',1e-8,'TypicalX',init1);
-c.power=2;c.powerPlot=0;
+c.power=0;c.powerPlot=0;
 
 % init1=minis;
-
+Xstore=zeros(r,3);
+n01=zeros(r,1);n02=zeros(r,1);
+mu1=zeros(r,1);mu2=zeros(r,1);
+lam1=zeros(r,1);lam2=zeros(r,1);
+M0_1=zeros(r,1);M0_2=zeros(r,1);
+M2_1=zeros(r,1);M2_2=zeros(r,1);
+M3_1=zeros(r,1);M3_2=zeros(r,1);
 method='curvefit';
 howmany='all';
 
-Xstore=zeros(r,3);
-if strcmp(method, 'curvefit') | strcmp(method, 'lsqnonlin')
-    n01=zeros(r,1);n02=zeros(r,1);
-    mu1=zeros(r,1);mu2=zeros(r,1);
-    lam1=zeros(r,1);lam2=zeros(r,1);
-    M0_1=zeros(r,1);M0_2=zeros(r,1);
-    M2_1=zeros(r,1);M2_2=zeros(r,1);
-    M3_1=zeros(r,1);M3_2=zeros(r,1);
-else
-    n01e=zeros(r,1);
-    mu1e=zeros(r,1);
-    lam1e=zeros(r,1);
-    M0_1e=zeros(r,1);
-    M2_1e=zeros(r,1);
-    M3_1e=zeros(r,1);
-end
-
 switch howmany
     case 'one'
-        start=250;
+        start=200;
         end1=start;
     case 'all'
         start=1;
@@ -82,30 +71,28 @@ for i=start:end1
     j=1:length(now_data_DP(i,:));
     switch method
         case 'easy'
-            [n01e(i),mu1e(i),lam1e(i),M0_1e(i),M2_1e(i),M3_1e(i)]=...
+            [n01(i),mu1(i),lam1(i),M0_1(i),M2_1(i),M3_1(i)]=...
                 CalcParamsEasy(M0(i),M2(i),M3(i),M6(i));
         case 'curvefit'
             % minimize
             % try
-                val=max(now_data_DP(i,:),0) ...
+                val=max(now_data_DP(i,:),1e-10) ...
                     .*1e12./diff(dedge).*(d_size./1e6).^c.power;
-                %dat=real(log10(val));
+                dat=real(log10(val));
                 dat=val;
                 RESNORMS=[];
                 Xs=[];
                 for k=1:length(ix(:))
-                    RESIDUAL=PSDfit([ix(k),iy(k),iz(k)],d_size(j)./1e6,c)...
-                        -dat;
-                    RESNORM=norm(RESIDUAL);
+                    [X,RESNORM,RESIDUAL,EXITFLAG] = ...
+                        lsqcurvefit(@(x,xdata) PSDfit(x,xdata,c),...
+                        [ix(k),iy(k),iz(k)], ...
+                        d_size(j)./1e6, dat(j),...
+                        minis,maxis,options1);
+                    Xs=[Xs;X];
                     RESNORMS=[RESNORMS;RESNORM];
                 end
                 ind=find(min(RESNORMS)==RESNORMS);
-
-                [X,RESNORM,RESIDUAL,EXITFLAG] = ...
-                    lsqcurvefit(@(x,xdata) PSDfit(x,xdata,c),...
-                    [ix(ind(1)),iy(ind(1)),iz(ind(1))], ...
-                    d_size(j)./1e6, dat(j),...
-                    minis,maxis,options1);
+                X=Xs(ind(1),:);
                 Xstore(i,:)=real(X);
 
                 [n01(i),n02(i),mu1(i),mu2(i),lam1(i),lam2(i), ...
@@ -151,43 +138,14 @@ switch howmany
                 D1 = gamma(mu1+3)./lam1.^(mu1+3) ./ (gamma(mu1+2)./lam1.^(mu1+2));
                 D2 = gamma(mu2+3)./lam2.^(mu2+3) ./ (gamma(mu2+2)./lam2.^(mu2+2));
         
-                
-
                 for i=1:r
-                    % swap
-                    [D1(i),D2(i),n01(i),n02(i),...
-                        lam1(i),lam2(i),mu1(i),mu2(i),...
-                        M0_1(i),M0_2(i),M2_1(i),M2_2(i),...
-                        M3_1(i),M3_2(i)]= ...
-                        swap(D1(i),D2(i),n01(i),n02(i),...
-                        lam1(i),lam2(i),mu1(i),mu2(i),...
-                        M0_1(i),M0_2(i),M2_1(i),M2_2(i),...
-                        M3_1(i),M3_2(i));
-
                     PSDcalc1(i,:)=n01(i).*(d_size./1e6).^mu1(i).* ...
                         exp(-lam1(i).*d_size./1e6);
                     PSDcalc2(i,:)=n02(i).*(d_size./1e6).^mu2(i).* ...
                         exp(-lam2(i).*d_size./1e6);
                     PSDcalc(i,:)=PSDcalc1(i,:)+PSDcalc2(i,:);
                 end
-                % calculate average size
-                Dav=(n01.*gamma(mu1+2)./lam1.^(mu1+2)+ ...
-                    n02.*gamma(mu2+2)./lam2.^(mu2+2)) ./ ...
-                    (M0);
-                Ddat=sum(now_data_DP.*repmat(d_size./1e6,[r,1]),2)./ ...
-                    sum(now_data_DP,2);
-
-                % calculate variance
-                var1=n01.*gamma(mu1+3)./lam1.^(mu1+3);
-                var2=n02.*gamma(mu2+3)./lam2.^(mu2+3);
-                vartot=(var1+var2)./ M0 - Dav.^2;
-                % expected value of D^2 minus expected value of (D)^2
-                vardat=sum(now_data_DP.*repmat(d_size./1e6,[r,1]).^2,2)./ ...
-                    sum(now_data_DP,2)-Ddat.^2;
-                % dispersion
-                disptot = sqrt(vartot)./Dav;
-                dispdat = sqrt(vardat)./Ddat;
-
+        
                 figure;
                 subplot(211)
                 pcolor(real(log10(PSD'.*repmat(d_size.^c.powerPlot,[r,1])')));shading flat
@@ -197,25 +155,10 @@ switch howmany
                 caxis(c1);
             case 'easy'
                 for i=1:r
-                    PSDcalc1(i,:)=n01e(i).*(d_size./1e6).^mu1e(i).* ...
-                        exp(-lam1e(i).*d_size./1e6);
+                    PSDcalc1(i,:)=n01(i).*(d_size./1e6).^mu1(i).* ...
+                        exp(-lam1(i).*d_size./1e6);
                     PSDcalc(i,:)=PSDcalc1(i,:);
                 end
-                % calculate average size
-                Dave=(n01e.*gamma(mu1e+2)./lam1e.^(mu1e+2)) ./ ...
-                    (M0_1e);
-                Ddat=sum(now_data_DP.*repmat(d_size./1e6,[r,1]),2)./ ...
-                    sum(now_data_DP,2);
-
-                % calculate variance
-                var1e=M2_1e;
-                vartote=max((var1e)./ M0_1e - Dave.^2,0);
-                % expected value of D^2 minus expected value of (D)^2
-                vardat=sum(now_data_DP.*repmat(d_size./1e6,[r,1]).^2,2)./ ...
-                    sum(now_data_DP,2)-Ddat.^2;
-                % dispersion
-                disptote = sqrt(vartote)./Dave;
-                dispdat = sqrt(vardat)./Ddat;
         
                 figure;
                 subplot(211)
@@ -241,10 +184,6 @@ switch howmany
 
 end
 
-% plot(F1,(1+2.*dispdat.^2).^(2/3)./(1+dispdat.^2).^(1./3),'.')
-% https://agupubs.onlinelibrary.wiley.com/doi/epdf/10.1029/2003GL017192
-% scatter(M3,beta1,20,F1,'filled')
-
 function F=PSDfit(x,xdata,c)
 
 % x contains the fraction of M0, M2, M3 in the distribution
@@ -256,10 +195,10 @@ M6=c.M6;
 [n01,n02,mu1,mu2,lam1,lam2,...
     M0_1,M2_1,M3_1,M0_2,M2_2,M3_2]=CalcParams(x,M0,M2,M3,M6);
 
-% F=real(log10(max(n01,0).*xdata.^mu1.*exp(-lam1.*xdata).*xdata.^c.power+...
-%     max(n02,0).*xdata.^mu2.*exp(-lam2.*xdata).*xdata.^c.power));
-F=real((max(n01,0).*xdata.^mu1.*exp(-lam1.*xdata).*xdata.^c.power+...
+F=real(log10(max(n01,0).*xdata.^mu1.*exp(-lam1.*xdata).*xdata.^c.power+...
     max(n02,0).*xdata.^mu2.*exp(-lam2.*xdata).*xdata.^c.power));
+% F=real((max(n01,0).*xdata.^mu1.*exp(-lam1.*xdata).*xdata.^c.power+...
+%     max(n02,0).*xdata.^mu2.*exp(-lam2.*xdata).*xdata.^c.power));
 
 end
 
@@ -438,44 +377,4 @@ lam1=lam(ind);
 M0calc=n01.*gamma(mu1+1)./lam1.^(mu1+1);
 M2calc=n01.*gamma(mu1+3)./lam1.^(mu1+3);
 M3calc=n01.*gamma(mu1+4)./lam1.^(mu1+4);
-end
-
-function [D1,D2,n01,n02,lam1,lam2,mu1,mu2,...
-                        M0_1,M0_2,M2_1,M2_2,...
-                        M3_1,M3_2]= ...
-                        swap(D1,D2,n01,n02,...
-                        lam1,lam2,mu1,mu2,...
-                        M0_1,M0_2,M2_1,M2_2,...
-                        M3_1,M3_2)
-
-if(D1 > D2)
-    dtmp=D1;
-    D1=D2;
-    D2=dtmp;
-    % 
-    dtmp=n01;
-    n01=n02;
-    n02=dtmp;
-    % 
-    dtmp=lam1;
-    lam1=lam2;
-    lam2=dtmp;
-    % 
-    dtmp=mu1;
-    mu1=mu2;
-    mu2=dtmp;
-    % 
-    dtmp=M0_1;
-    M0_1=M0_2;
-    M0_2=dtmp;
-    % 
-    dtmp=M2_1;
-    M2_1=M2_2;
-    M2_2=dtmp;
-    % 
-    dtmp=M3_1;
-    M3_1=M3_2;
-    M3_2=dtmp;
-end
-
 end
